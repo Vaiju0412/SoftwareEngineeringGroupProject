@@ -172,3 +172,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+git rm --cached __pycache__/models.cpython-310.pyc
+git rm --cached api/__pycache__/auth.cpython-310.pyc
