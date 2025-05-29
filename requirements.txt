@@ -2,3 +2,4 @@ flask
 flask-restx
 flask-sqlalchemy
 flask-cors
+flask-migrate
