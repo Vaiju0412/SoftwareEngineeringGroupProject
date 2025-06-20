@@ -8,7 +8,7 @@ class User(db.Model):
     first_name = db.Column(db.String(50), nullable=False)
     last_name = db.Column(db.String(50), nullable=False)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='user')
+    role = db.Column(db.String(20), nullable=False, default='senior_citizen') # role: senior_citizen, caregiver, admin
     profile_picture = db.Column(db.String(200))
     password_hash = db.Column(db.String(128), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -36,13 +36,13 @@ class Medicine(db.Model):
     is_approved = db.Column(db.Boolean, default=False)
     
     # Fixed relationship
-    user_med_maps = db.relationship('UserMedMap', backref='medicine', lazy=True)
+    user_med_maps = db.relationship('UserMedMap', backref=db.backref('medicine', passive_deletes=True), lazy=True, cascade='all, delete-orphan')
 
 class UserMedMap(db.Model):
     __tablename__ = 'user_med_map'
     id = db.Column(db.Integer, primary_key=True)
-    medicine_id = db.Column(db.Integer, db.ForeignKey('medicine.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    medicine_id = db.Column(db.Integer, db.ForeignKey('medicine.id', name='fk_user_med_map_medicine_id',ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', name='fk_user_med_map_user_id'), nullable=False)
     dosage = db.Column(db.Integer, nullable=False)
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
@@ -52,8 +52,6 @@ class UserMedMap(db.Model):
     lunch_after = db.Column(db.Boolean, default=False)
     dinner_before = db.Column(db.Boolean, default=False)
     dinner_after = db.Column(db.Boolean, default=False)
-    had_taken = db.Column(db.Boolean, default=False)
-    random = db.Column(db.Boolean, default=False)
     
     statuses = db.relationship('Status', backref='user_med_map', lazy=True, cascade="all, delete-orphan")
 
@@ -83,6 +81,8 @@ class CaregiverSeniorMap(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     caregiver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     senior_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, approved, rejected
+
 
 class MedicineReminder(db.Model):
     __tablename__ = 'medicine_reminder'
@@ -93,3 +93,4 @@ class MedicineReminder(db.Model):
     message = db.Column(db.String(200), nullable=False)
     active = db.Column(db.Boolean, default=True)
     user_med_map = db.relationship('UserMedMap', backref='reminders')
+
