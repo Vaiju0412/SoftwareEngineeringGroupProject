@@ -82,6 +82,17 @@ send_reminder_model = sc.model('SendReminderModel', {
     'medicine_id': fields.Integer(required=True, description='ID of the medicine to send reminder for')
 })
 
+mark_medicine_taken_model = sc.model("MarkMedicineTaken", {
+    'medicine_id': fields.Integer(required=True),
+    'slot': fields.String(required=True, example="breakfast_before"),
+})
+
+health_entry_model = sc.model("HealthEntry", {
+    'bp_systolic': fields.Integer(required=True),
+    'bp_diastolic': fields.Integer(required=True),
+    'sugar_level': fields.Float(required=True),
+})
+
 # To verify token
 @sc.route("/api/verify-token")
 class VerifyToken(Resource):
@@ -339,7 +350,7 @@ class MedicineStatus(Resource):
         user_med_map = UserMedMap.query.filter_by(user_id=user_id, medicine_id=medicine_id).first()
         if not user_med_map:
             return {"error": "Medicine assignment not found."}, 404
-        status = Status.query.filter_by(user_med_map_id=user_med_map.id, date=target_date).first()
+        status = Status.query.filter(Status.user_med_map_id==user_med_map.id, func.date(Status.date)==target_date).first()
         if not status:
             return {"error": "No status entry found for this date."}, 404
         return {
@@ -787,6 +798,81 @@ class PendingMedicines(Resource):
             "user_id": m.user_id,
             "created_at": m.created_at.isoformat()
         } for m in pending], 200
+
+# <------------------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Marking Medicines as taken------------------------------------>
+
+@sc.route("/mark-medicine-taken", methods=["PUT"])
+class MarkMedicineTaken(Resource):
+    @jwt_required()
+    @sc.expect(sc.model('MarkMedicineTaken', {
+        'medicine_id': fields.Integer(required=True),
+        'slot': fields.String(required=True, example="breakfast_before"),
+    }), validate=True)
+    def put(self):
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        medicine_id = data.get("medicine_id")
+        slot = data.get("slot")  
+        if not all([medicine_id, slot]):
+            return {"error": "medicine_id and slot are required."}, 400
+
+        if slot not in [
+            "breakfast_before", "breakfast_after",
+            "lunch_before", "lunch_after",
+            "dinner_before", "dinner_after"
+        ]:
+            return {"error": "Invalid slot value."}, 400
+
+        user_med_map = UserMedMap.query.filter_by(user_id=user_id,medicine_id=medicine_id).first()
+        if not user_med_map:
+            return {"error": "Medicine assignment not found."}, 404
+        status = Status.query.filter(Status.user_med_map_id==user_med_map.id,func.date(Status.date)==datetime.utcnow().date()).first()
+        if not status:
+            return {"error": "Status entry not found for this date."}, 404
+        setattr(status, slot, True)
+        try:
+            db.session.commit()
+            return {"message": f"Marked {slot} as taken for {datetime.utcnow().date()}"}, 200
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 500
+
+# <------------------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Daily Health Entry------------------------------------>
+
+@sc.route("/health-entry", methods=["POST"])
+class HealthEntry(Resource):
+    @jwt_required()
+    @sc.expect(sc.model('HealthEntry', {
+        'bp_systolic': fields.Integer(required=True),
+        'bp_diastolic': fields.Integer(required=True),
+        'sugar_level': fields.Float(required=True)
+    }), validate=True)
+    def post(self):
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        try:
+            today = datetime.utcnow().date()
+            existing_entry = DailyHealthEntry.query.filter_by(user_id=user_id, date=today).first()
+            if existing_entry:
+                return {"error": "Health entry already exists for today."}, 400
+            new_entry = DailyHealthEntry(
+                user_id=user_id,
+                date=today,
+                bp_systolic=data.get("bp_systolic"),
+                bp_diastolic=data.get("bp_diastolic"),
+                sugar_level=data.get("sugar_level")
+            )
+            db.session.add(new_entry)
+            db.session.commit()
+            return {"message": "Today's health entry recorded successfully."}, 201
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 500
 
 # <------------------------------------------------------------------------------------------------------------->
 
