@@ -1,7 +1,7 @@
 from flask_restx import Namespace, Resource, fields
 from flask import request
-from models import User
-from extensions import db
+from Backend.models import User
+from Backend.extensions import db
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 
 from datetime import timedelta
@@ -13,7 +13,8 @@ signup_model = api.model('SignUp', {
     'last_name': fields.String(required=True),
     'username': fields.String(required=True),
     'password': fields.String(required=True),
-    'role': fields.String(required=False, default='user'),
+    'confirm_password': fields.String(required=True),
+    'role': fields.String(required=False, default='senior_citizen'),
     'profile_picture': fields.String(required=False)
 })
 
@@ -30,6 +31,9 @@ class Signup(Resource):
         
         if User.query.filter_by(username=data['username']).first():
             return {'message': 'Username already exists'}, 400
+        
+        if data['password'] != data['confirm_password']:
+            return {'message': 'Passwords do not match'}, 400
 
         user = User(
             first_name=data['first_name'],

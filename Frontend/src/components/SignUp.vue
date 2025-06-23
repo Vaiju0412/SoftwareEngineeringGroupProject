@@ -1,103 +1,166 @@
-<!-- SignupForm.vue -->
 <template>
-  <div class="signup-wrapper">
-    <div class="form-container">
-      <h1>Signup</h1>
-
-      <form @submit.prevent="register">
-        <label>First Name</label>
-        <input type="text" v-model="firstName" required />
-
-        <label>Last Name</label>
-        <input type="text" v-model="lastName" required />
-
-        <label>Username</label>
-        <input type="text" v-model="username" required />
-
-        <label>Password</label>
-        <input type="password" v-model="password" required />
-
-        <label>Role</label>
-        <input type="text" v-model="role" required />
-
-        <button type="submit">Register</button>
-      </form>
+    <div class="page-wrapper">
+    <NavBar />
+    <div class="container">
+        <div v-if="message" :class="{'alert-success': success, 'alert-danger': !success}" class="alert mt-3">
+        {{ message }}
+        </div>
+        <h1 class="page-title">Sign Up</h1>
+        <form @submit.prevent="handleSubmit">
+            <div class="form-container">
+                <div class="form-group text-left">
+                <label for="user_id">User ID</label>
+                <input type="text" v-model="user_id" class="form-control" id="user_id" placeholder="Enter UserID" required/>
+                </div>
+                <div class="form-group text-left">
+                <label for="firstName">First Name</label>
+                <input type="text" v-model="firstName" class="form-control" id="firstName" placeholder="Enter your First Name" required/>
+                </div>
+                <div class="form-group text-left">
+                <label for="password1">Password</label>
+                <input type="password" v-model="password1" class="form-control" id="password1" placeholder="Enter Password" required/>
+                </div>
+                <div class="form-group text-left">
+                <label for="password2">Confirm Password</label>
+                <input type="password" v-model="password2" class="form-control" id="password2" placeholder="Confirm Password" required/>
+                </div>
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+            </form>
+        </div>
     </div>
-  </div>
-</template>
+  </template>
+  
+  <script>
+  import apiService from '@/services/apiService';
+  import NavBar from '@/components/Navbar.vue';
+  export default {
+    name: 'SignUp',
+    components: {
+    NavBar
+  },
+    data() {
+      return {
+        user_id: '',
+        firstName: '',
+        password1: '',
+        password2: '',
+        message: '', 
+        success: false 
+      };
+    },
+    methods: {
+      async handleSubmit() {
+        try{
+            const result = await apiService.post("/signup", {
+                user_id: this.user_id,
+                firstName: this.firstName,
+                password1: this.password1,
+                password2: this.password2
+            });
+  
+            if (result.status == 200) {
 
-<script setup>
-import { ref } from 'vue'
+                this.message = 'Account created successfully!';
+                this.success = true;
 
-const firstName = ref('')
-const lastName = ref('')
-const username = ref('')
-const password = ref('')
-const role = ref('')
-
-function register() {
-  console.log('Registering:', {
-    firstName: firstName.value,
-    lastName: lastName.value,
-    username: username.value,
-    password: password.value,
-    role: role.value,
-  })
-}
-</script>
-
-<style scoped>
-.signup-wrapper {
-  background-color: #d6eed6;
+                setTimeout(() => {
+                this.$router.push('/');
+                }, 2000); 
+            }
+        }   catch(error){
+            if (error.response) {
+                if (error.response.status === 400) {
+                    this.message = 'User already exists';
+                } else if (error.response.status === 406) {
+                    this.message = 'Passwords don\'t match. Please try again.';
+                } else {
+                    this.message = 'An error occurred';
+                }
+                } else {
+                this.message = 'Network error';
+                }
+            }
+        }
+    },
+    mounted() {
+      if (sessionStorage.getItem('loggedIn')) {
+        this.$router.push('/home');
+      }
+    }
+  };
+  </script>
+  
+  <style scoped>
+  .page-wrapper {
+  font-family: 'Times New Roman', Times, serif;
+  background-color: #f5f5f5;
   min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  border-radius: 20px;
+  padding-top: 80px;
 }
 
-.form-container {
-  background-color: #a2d4f2;
-  padding: 2rem;
-  border-radius: 20px;
-  width: 300px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+.container {
+  max-width: 600px;
+  margin: 0 auto;
+  background-color: #ffffff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-h1 {
+.page-title {
+  color: #333;
+  font-size: 28px;
+  margin-bottom: 30px;
   text-align: center;
-  margin-bottom: 1.5rem;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-}
-
-label {
-  margin: 0.5rem 0 0.2rem;
   font-weight: bold;
 }
 
-input {
-  padding: 0.5rem;
-  border: 1px solid #ccc;
-  border-radius: 8px;
-  background-color: #e2e2e2;
+.form-group {
+  margin-bottom: 20px;
 }
 
-button {
-  margin-top: 1.5rem;
-  padding: 0.6rem;
-  background-color: #2962ff;
-  color: white;
-  font-weight: bold;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
+.form-group label {
+  display: block;
+  font-size: 16px;
+  color: #333;
 }
 
-button:hover {
-  background-color: #0039cb;
+.form-control {
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  padding: 10px;
+  font-size: 16px;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background-color: #0056b3;
+  border-color: #004085;
+}
+
+.alert {
+  padding: 15px;
+  border-radius: 4px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.alert-success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.alert-danger {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
 }
 </style>
+  
