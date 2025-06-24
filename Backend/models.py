@@ -71,9 +71,9 @@ class DailyHealthEntry(db.Model):
     __tablename__ = 'daily_health_entry'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    bp_systolic = db.Column(db.Float)
-    bp_diastolic = db.Column(db.Float)
+    date = db.Column(db.Date, nullable=False)
+    bp_systolic = db.Column(db.Integer)
+    bp_diastolic = db.Column(db.Integer)
     sugar_level = db.Column(db.Float)
 
 class CaregiverSeniorMap(db.Model):
