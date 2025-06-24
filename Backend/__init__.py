@@ -5,7 +5,7 @@ from datetime import timedelta
 from .extensions import api, db, jwt
 
 
-from .resources import set
+from .resources import sc
 from .models import *
 
 def create_app():
