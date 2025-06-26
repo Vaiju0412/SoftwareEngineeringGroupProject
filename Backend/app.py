@@ -15,7 +15,6 @@ def create_app():
     "http://10.244.53.76:8080" # Frontend on another device in the network
 ]}})
     # CORS(app)
-
     # Configure database
     instance_path = os.path.abspath(os.path.join(app.root_path, 'instance'))
     os.makedirs(instance_path, exist_ok=True)

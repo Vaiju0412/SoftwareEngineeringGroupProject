@@ -69,6 +69,7 @@ unassign_medicine_model = sc.model('UnassignMedicine', {
 
 report_model = sc.model("StatusReportInput", {
     "user_id": fields.Integer(required=False, description="Senior Citizen ID"),
+
     "month": fields.Integer(required=True, description="Month (1-12)"),
     "year": fields.Integer(required=True, description="Year (e.g., 2025)")
 })
@@ -91,6 +92,17 @@ send_reminder_model = sc.model('SendReminderModel', {
     'medicine_id': fields.Integer(required=True, description='ID of the medicine to send reminder for')
 })
 
+mark_medicine_taken_model = sc.model("MarkMedicineTaken", {
+    'medicine_id': fields.Integer(required=True),
+    'slot': fields.String(required=True, example="breakfast_before"),
+})
+
+health_entry_model = sc.model("HealthEntry", {
+    'bp_systolic': fields.Integer(required=True),
+    'bp_diastolic': fields.Integer(required=True),
+    'sugar_level': fields.Float(required=True),
+})
+
 # To verify token
 @sc.route("/api/verify-token")
 class VerifyToken(Resource):
@@ -105,6 +117,7 @@ class VerifyToken(Resource):
                 "claims": claims,
                 "message": "Token is valid",
                 "role": claims.get('role')
+
             }, 200
         except Unauthorized as e:
             return {
@@ -129,8 +142,7 @@ class EditUser(Resource):
         user = User.query.get(user_id)
 
         if not user:
-            return {'message': 'User not found'}, 404
-        
+            return {'message': 'User not found'}, 404        
         # to check validity of user
         if (user_id != user):
             return {'message': 'You are not authorized to update other user details'}, 403
@@ -186,6 +198,7 @@ class CreateMedicine(Resource):
 class AllMedicineNames(Resource):
     def get(self):
         medicines = Medicine.query.filter_by(status="approved").all()
+
         result = [
             {
                 "title": med.title,
@@ -210,6 +223,7 @@ class EditMedicine(Resource):
             return {'message': 'Unauthorized'}, 403
         # Check if the medicine exists and belongs to the user
         medicine = Medicine.query.filter_by(id=medicine_id).first()
+
 
         if not medicine:
             return {'message': 'Medicine not found or unauthorized'}, 404
@@ -239,6 +253,7 @@ class DeleteMedicine(Resource):
             return {'message': 'Unauthorized'}, 403
         
         medicine = Medicine.query.filter_by(id=medicine_id).first()
+
         if not medicine:
             return {'message': 'Medicine not found or unauthorized'}, 404
 
@@ -280,7 +295,6 @@ class AssignMedicine(Resource):
 
             if not is_approved:
                 return {"error": "You are not an approved caregiver for this senior citizen."}, 403
-
         
         try:
             assignment = UserMedMap(
@@ -372,6 +386,7 @@ class MyMedicines(Resource):
         if (user_role != "senior_citizen"):
             return {"error": "You are not authorized to access this resource."}, 403
         
+
         user_meds = UserMedMap.query.filter_by(user_id=user_id).all()
         result = []
         for um in user_meds:
@@ -413,6 +428,7 @@ class MedicineStatus(Resource):
         if not user_med_map:
             return {"error": "Medicine assignment not found."}, 404
         status = Status.query.filter_by(user_med_map_id=user_med_map.id, date=target_date).first()
+
         if not status:
             return {"error": "No status entry found for this date."}, 404
         return {
@@ -832,6 +848,7 @@ class ApproveCaregiver(Resource):
 
         senior = User.query.get(senior_id)
         if not senior or senior.role != 'senior_citizen':
+
             return {"error": "Only senior citizens can approve requests."}, 403
 
         relation = CaregiverSeniorMap.query.filter_by(caregiver_id=caregiver_id, senior_id=senior_id).first()
@@ -953,6 +970,7 @@ class PendingMedicines(Resource):
             return {"error": "Only admins can view pending medicines."}, 403
 
         pending = Medicine.query.filter_by(status="pending").all()
+
         return [{
             "id": m.id,
             "title": m.title,
@@ -1091,5 +1109,81 @@ class TodaysMedications(Resource):
                         "time": slot_name
                     })
         return {"date": today.isoformat(), "medications": result}, 200
+
+# <------------------------------------------------------------------------------------------------------------->
+# <------------------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Marking Medicines as taken------------------------------------>
+
+@sc.route("/mark-medicine-taken", methods=["PUT"])
+class MarkMedicineTaken(Resource):
+    @jwt_required()
+    @sc.expect(sc.model('MarkMedicineTaken', {
+        'medicine_id': fields.Integer(required=True),
+        'slot': fields.String(required=True, example="breakfast_before"),
+    }), validate=True)
+    def put(self):
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        medicine_id = data.get("medicine_id")
+        slot = data.get("slot")  
+        if not all([medicine_id, slot]):
+            return {"error": "medicine_id and slot are required."}, 400
+
+        if slot not in [
+            "breakfast_before", "breakfast_after",
+            "lunch_before", "lunch_after",
+            "dinner_before", "dinner_after"
+        ]:
+            return {"error": "Invalid slot value."}, 400
+
+        user_med_map = UserMedMap.query.filter_by(user_id=user_id,medicine_id=medicine_id).first()
+        if not user_med_map:
+            return {"error": "Medicine assignment not found."}, 404
+        status = Status.query.filter(Status.user_med_map_id==user_med_map.id,func.date(Status.date)==datetime.utcnow().date()).first()
+        if not status:
+            return {"error": "Status entry not found for this date."}, 404
+        setattr(status, slot, True)
+        try:
+            db.session.commit()
+            return {"message": f"Marked {slot} as taken for {datetime.utcnow().date()}"}, 200
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 500
+
+# <------------------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Daily Health Entry------------------------------------>
+
+@sc.route("/health-entry", methods=["POST"])
+class HealthEntry(Resource):
+    @jwt_required()
+    @sc.expect(sc.model('HealthEntry', {
+        'bp_systolic': fields.Integer(required=True),
+        'bp_diastolic': fields.Integer(required=True),
+        'sugar_level': fields.Float(required=True)
+    }), validate=True)
+    def post(self):
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        try:
+            today = datetime.utcnow().date()
+            existing_entry = DailyHealthEntry.query.filter_by(user_id=user_id, date=today).first()
+            if existing_entry:
+                return {"error": "Health entry already exists for today."}, 400
+            new_entry = DailyHealthEntry(
+                user_id=user_id,
+                date=today,
+                bp_systolic=data.get("bp_systolic"),
+                bp_diastolic=data.get("bp_diastolic"),
+                sugar_level=data.get("sugar_level")
+            )
+            db.session.add(new_entry)
+            db.session.commit()
+            return {"message": "Today's health entry recorded successfully."}, 201
+        except Exception as e:
+            db.session.rollback()
+            return {"error": str(e)}, 500
 
 # <------------------------------------------------------------------------------------------------------------->
