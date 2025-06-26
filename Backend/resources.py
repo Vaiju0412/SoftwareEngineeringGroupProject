@@ -2,13 +2,15 @@ import builtins
 from collections import OrderedDict
 import csv
 from datetime import date, timedelta, datetime
+from zoneinfo import ZoneInfo
+import pytz
 from functools import wraps
 import io
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import pandas as pd
 from flask import request, jsonify
 from flask_restx import Resource, Namespace, reqparse, marshal, fields
-from flask_jwt_extended import create_access_token, current_user, get_jwt_identity, jwt_required, get_jwt, verify_jwt_in_request
+from flask_jwt_extended import create_access_token, current_user, get_jwt_identity, jwt_required, get_jwt, verify_jwt_in_request, JWTManager
 from sqlalchemy import distinct, exists, func, null,extract
 from sqlalchemy.orm import aliased, joinedload, subqueryload, contains_eager
 import logging
@@ -48,6 +50,7 @@ create_medicine_model = sc.model('CreateMedicine', {
 
 assign_medicine_model = sc.model('AssignMedicine', {
     'medicine_id': fields.Integer(required=True),
+    'senior_citizen_id': fields.Integer(required=False),
     'dosage': fields.Integer(required=True),
     'start_date': fields.String(required=True, description='YYYY-MM-DD'),
     'end_date': fields.String(required=True, description='YYYY-MM-DD'),
@@ -59,7 +62,13 @@ assign_medicine_model = sc.model('AssignMedicine', {
     'dinner_after': fields.Boolean(required=False, default=False),
 })
 
+unassign_medicine_model = sc.model('UnassignMedicine', {
+    'user_id': fields.Integer(required=False, description='Senior Citizen ID'),
+    'medicine_id': fields.Integer(required=True, description='ID of medicine to be removed'),
+})
+
 report_model = sc.model("StatusReportInput", {
+    "user_id": fields.Integer(required=False, description="Senior Citizen ID"),
     "month": fields.Integer(required=True, description="Month (1-12)"),
     "year": fields.Integer(required=True, description="Year (e.g., 2025)")
 })
@@ -94,7 +103,8 @@ class VerifyToken(Resource):
             return {
                 "valid": True,
                 "claims": claims,
-                "message": "Token is valid"
+                "message": "Token is valid",
+                "role": claims.get('role')
             }, 200
         except Unauthorized as e:
             return {
@@ -115,10 +125,15 @@ class EditUser(Resource):
     def put(self, user_id):
         """Update user details"""
         data = request.get_json()
+        user_id = current_user.id # Only concerned user can only change it's own details
         user = User.query.get(user_id)
 
         if not user:
             return {'message': 'User not found'}, 404
+        
+        # to check validity of user
+        if (user_id != user):
+            return {'message': 'You are not authorized to update other user details'}, 403
 
         # Update fields only if present in data
         user.first_name = data.get('first_name', user.first_name)
@@ -170,7 +185,7 @@ class CreateMedicine(Resource):
 @sc.route('/all-medicines')
 class AllMedicineNames(Resource):
     def get(self):
-        medicines = Medicine.query.all()
+        medicines = Medicine.query.filter_by(status="approved").all()
         result = [
             {
                 "title": med.title,
@@ -189,7 +204,13 @@ class EditMedicine(Resource):
     def put(self, medicine_id):
         """Update a medicine entry by ID."""
         user_id = get_jwt_identity()
-        medicine = Medicine.query.filter_by(id=medicine_id, user_id=user_id).first()
+        user_role = current_user.role
+
+        if user_role != "admin":
+            return {'message': 'Unauthorized'}, 403
+        # Check if the medicine exists and belongs to the user
+        medicine = Medicine.query.filter_by(id=medicine_id).first()
+
         if not medicine:
             return {'message': 'Medicine not found or unauthorized'}, 404
 
@@ -212,7 +233,12 @@ class DeleteMedicine(Resource):
     def delete(self, medicine_id):
         """Delete a medicine entry by ID."""
         user_id = get_jwt_identity()
-        medicine = Medicine.query.filter_by(id=medicine_id, user_id=user_id).first()
+        user_role = current_user.role
+
+        if user_role != "admin":
+            return {'message': 'Unauthorized'}, 403
+        
+        medicine = Medicine.query.filter_by(id=medicine_id).first()
         if not medicine:
             return {'message': 'Medicine not found or unauthorized'}, 404
 
@@ -236,7 +262,26 @@ class AssignMedicine(Resource):
     @sc.expect(assign_medicine_model, validate=True)
     def post(self):
         data = request.get_json()
-        user_id = get_jwt_identity()
+        user_role = current_user.role
+
+        if(user_role == "senior_citizen"):
+            user_id = current_user.id
+        elif user_role == "care_giver":
+            user_id = data.get("senior_citizen_id")
+            if not user_id:
+                return {"error": "Missing 'senior_citizen_id' for caregiver"}, 400
+
+            # Check caregiver-senior relationship
+            is_approved = CaregiverSeniorMap.query.filter_by(
+                caregiver_id=current_user.id,
+                senior_id=user_id,
+                status='approved'
+            ).first()
+
+            if not is_approved:
+                return {"error": "You are not an approved caregiver for this senior citizen."}, 403
+
+        
         try:
             assignment = UserMedMap(
                 user_id=user_id,
@@ -276,11 +321,34 @@ class AssignMedicine(Resource):
             return {"error": str(e)}, 500
 
 # To unassign medicine for senior citizen
-@sc.route("/unassign-medicine/<int:medicine_id>",methods=["DELETE"])
+@sc.route("/unassign-medicine",methods=["DELETE"])
 class UnassignMedicine(Resource):
     @jwt_required()
-    def delete(self, medicine_id):
-        user_id=get_jwt_identity()
+    @sc.expect(unassign_medicine_model, validate=True)
+    def delete(self):
+        data = request.get_json()
+        user_role = current_user.role
+
+        if(user_role == "senior_citizen"):
+            user_id = current_user.id
+        elif user_role == "care_giver":
+            user_id = data.get("senior_citizen_id")
+            if not user_id:
+                return {"error": "Missing 'senior_citizen_id' for caregiver"}, 400
+
+            # Check caregiver-senior relationship
+            is_approved = CaregiverSeniorMap.query.filter_by(
+                caregiver_id=current_user.id,
+                senior_id=user_id,
+                status='approved'
+            ).first()
+
+            if not is_approved:
+                return {"error": "You are not an approved caregiver for this senior citizen."}, 403
+
+
+        medicine_id = data['medicine_id']
+
         assignment=UserMedMap.query.filter_by(user_id=user_id, medicine_id=medicine_id).first()
         if not assignment:
                 return {"error": "Assignment not found."}, 404
@@ -299,6 +367,11 @@ class MyMedicines(Resource):
     @jwt_required()
     def get(self):
         user_id = get_jwt_identity()
+        user_role = current_user.role
+
+        if (user_role != "senior_citizen"):
+            return {"error": "You are not authorized to access this resource."}, 403
+        
         user_meds = UserMedMap.query.filter_by(user_id=user_id).all()
         result = []
         for um in user_meds:
@@ -361,10 +434,28 @@ class StatusReport(Resource):
     @jwt_required()
     @sc.expect(report_model, validate=True)
     def post(self):
-        user_id = get_jwt_identity()
+        # user_id = get_jwt_identity()
+        user_role = current_user.role
         data = request.get_json()
         month = data.get("month")
         year = data.get("year")
+
+        if(user_role == "senior_citizen"):
+            user_id = current_user.id
+        elif user_role == "care_giver":
+            user_id = data.get("user_id")
+            if not user_id:
+                return {"error": "Missing 'senior citizen id' for caregiver"}, 400
+            # Check caregiver-senior relationship
+            is_approved = CaregiverSeniorMap.query.filter_by(
+                caregiver_id=current_user.id,
+                senior_id=user_id,
+                status='approved'
+                ).first()
+            
+            if not is_approved:
+                return {"error": "You are not an approved caregiver for this senior citizen."}, 403
+            
         if month is None or year is None:
             return {"error": "Month and year are required in JSON body."}, 400
 
@@ -403,9 +494,33 @@ class StatusReport(Resource):
 @sc.route('/medicine-status-today')
 class MedicineStatusToday(Resource):
     @jwt_required()
+    @sc.expect(sc.model('SeniorInput', {
+        'senior_citizen_id': fields.Integer(required=True, description='ID of the senior citizen')
+    }), validate=True)
+
     def get(self):
-        user_id = get_jwt_identity()
-        current_date = datetime.utcnow().date()
+        # user_id = get_jwt_identity()
+        user_role = current_user.role
+        if(user_role == "senior_citizen"):
+            user_id = current_user.id
+
+        elif user_role == "care_giver":
+            data = request.get_json()
+            user_id = data.get("senior_citizen_id")
+            if not user_id:
+                return {"error": "Missing 'senior_citizen_id' for caregiver"}, 400
+            
+            # Check caregiver-senior relationship
+            is_approved = CaregiverSeniorMap.query.filter_by(
+                caregiver_id=current_user.id,
+                senior_id=user_id,
+                status='approved'
+                ).first()
+            if not is_approved:
+                return {"error": "You are not an approved caregiver for this senior citizen."}, 403
+            
+        ist = pytz.timezone('Asia/Kolkata')
+        current_date = datetime.now(ist).date()
         
         user_meds = UserMedMap.query.filter_by(user_id=user_id).all()
         completed_meds = []
@@ -716,7 +831,7 @@ class ApproveCaregiver(Resource):
         senior_id = get_jwt_identity()
 
         senior = User.query.get(senior_id)
-        if not senior or senior.role != 'senior':
+        if not senior or senior.role != 'senior_citizen':
             return {"error": "Only senior citizens can approve requests."}, 403
 
         relation = CaregiverSeniorMap.query.filter_by(caregiver_id=caregiver_id, senior_id=senior_id).first()
@@ -732,6 +847,50 @@ class ApproveCaregiver(Resource):
         return {"message": "Caregiver request approved successfully."}, 200
 
 # <------------------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Caregiver send request to senior citizen------------------------------------>
+
+@sc.route('/request-senior')
+class RequestSenior(Resource):
+    @jwt_required()
+    @sc.expect(sc.model('RequestSenior', {
+        'senior_id': fields.Integer(required=True)
+    }), validate=True)
+    def post(self):
+        """Caregiver sends request to senior citizen"""
+        data = request.get_json()
+        senior_id = data.get('senior_id')
+        caregiver_id = get_jwt_identity()
+
+        caregiver = User.query.get(caregiver_id)
+        if not caregiver or caregiver.role != 'care_giver':
+            return {"error": "Only caregivers can send requests."}, 403
+
+        senior = User.query.get(senior_id)
+        if not senior or senior.role != 'senior_citizen':
+            return {"error": "Target user is not a senior citizen."}, 404
+
+        # Check if a request already exists
+        relation = CaregiverSeniorMap.query.filter_by(caregiver_id=caregiver_id, senior_id=senior_id).first()
+        if relation:
+            if relation.status == 'pending':
+                return {"message": "Request already sent and pending approval."}, 200
+            elif relation.status == 'approved':
+                return {"message": "You are already approved as a caregiver for this senior."}, 200
+            elif relation.status == 'rejected':
+                return {"message": "Your previous request was rejected."}, 200
+
+        # Create new request
+        new_relation = CaregiverSeniorMap(
+            caregiver_id=caregiver_id,
+            senior_id=senior_id,
+            status='pending'
+        )
+        db.session.add(new_relation)
+        db.session.commit()
+
+        return {"message": "Request sent to senior citizen successfully."}, 201
+    
 
 # <-------------------------------------Admin approval for new medicines------------------------------------>
 
@@ -757,11 +916,25 @@ class MedicineApproval(Resource):
         medicine = Medicine.query.get(medicine_id)
         if not medicine:
             return {"error": "Medicine not found."}, 404
+        
+        if (medicine.status == "approved"):
+            return {"error": "Medicine is already approved."}, 400
+        elif (medicine.status == "rejected"):
+            return {"error": "Medicine is already rejected."}, 400
 
         medicine.is_approved = approve
-        db.session.commit()
 
         status_msg = "approved" if approve else "rejected"
+        
+        if status_msg == "approved":
+            # Change the status of the medicine to 'approved' in Medicine table
+            medicine.status = 'approved'
+        else:
+            # Change the status of the medicine to 'rejected' in Medicine table
+            medicine.status = 'rejected'
+
+        db.session.commit()
+        
         return {"message": f"Medicine has been {status_msg}."}, 200
 
 # <------------------------------------------------------------------------------------------------------------->
@@ -779,7 +952,7 @@ class PendingMedicines(Resource):
         if not admin or admin.role != 'admin':
             return {"error": "Only admins can view pending medicines."}, 403
 
-        pending = Medicine.query.filter_by(is_approved=False).all()
+        pending = Medicine.query.filter_by(status="pending").all()
         return [{
             "id": m.id,
             "title": m.title,
@@ -787,5 +960,136 @@ class PendingMedicines(Resource):
             "user_id": m.user_id,
             "created_at": m.created_at.isoformat()
         } for m in pending], 200
+
+# <-------------------------------------List All Rejected Medicines------------------------------------>
+@sc.route('/admin/medicine/rejected')
+class RejectedMedicines(Resource):
+    @jwt_required()
+    def get(self):
+        """List all rejected medicines (admin only)"""
+        user_role = current_user.role
+        if user_role != 'admin':
+            return {"error": "Only admins can view rejected medicines."}, 403
+        rejected = Medicine.query.filter_by(status="rejected").all()
+        return {"rejected_medicines": [{
+            "id": m.id,
+            "title": m.title,
+            "description": m.description
+        } for m in rejected]}
+
+ # <------------------------------------------------------------------------------------------------------------->
+
+# <----------------------------------------------------------------------------------------------------->
+
+# <-------------------------------------Upcoming medications------------------------------------>
+@sc.route('/upcoming-medications')
+class UpcomingMedications(Resource):
+    @jwt_required()
+    def get(self):
+        """Get upcoming medications before scheduled times for the logged-in senior or approved seniors for caregiver"""
+        user = current_user
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        current_hour = now.hour
+        today = now.date()
+
+        # Determine current slot
+        slots = []
+
+        if 4 <= current_hour < 10:
+            slots.extend(['breakfast_before', 'breakfast_after'])
+        if 10 <= current_hour < 15:
+            slots.extend(['lunch_before', 'lunch_after'])
+        if 16 <= current_hour < 22:
+            slots.extend(['dinner_before', 'dinner_after'])
+
+        if not slots:
+            return {"upcoming_medications": []}, 200
+
+        result = []
+
+        def get_meds_for_user(user_id):
+            return UserMedMap.query.join(Medicine).filter(
+                UserMedMap.user_id == user_id,
+                UserMedMap.start_date <= today,
+                UserMedMap.end_date >= today
+            ).all()
+
+        if user.role == 'senior_citizen':
+            meds = get_meds_for_user(user.id)
+            result = filter_meds_by_time(meds, slots)
+
+        elif user.role == 'care_giver':
+            approved_seniors = CaregiverSeniorMap.query.filter_by(caregiver_id=user.id).with_entities(
+                CaregiverSeniorMap.senior_id
+            ).all()
+            senior_ids = [s[0] for s in approved_seniors]
+            for sid in senior_ids:
+                meds = get_meds_for_user(sid)
+                result.extend(filter_meds_by_time(meds, slots, sid))
+
+        else:
+            return {"error": "Unauthorized role"}, 403
+
+        return {"upcoming_medications": result}, 200
+
+
+def filter_meds_by_time(meds, valid_slots, user_id=None):
+    """Filter medicine slots by upcoming 3-hour window"""
+    upcoming = []
+    for med in meds:
+        for slot in valid_slots:
+            if getattr(med, slot):
+                upcoming.append({
+                    "user_id": user_id,
+                    "medicine_id": med.medicine_id,
+                    "medicine_title": med.medicine.title,
+                    "dosage": med.dosage,
+                    "start_date": med.start_date.isoformat(),
+                    "end_date": med.end_date.isoformat(),
+                    "reminder_slot": slot.replace('_', ' ').capitalize()
+                })
+    return upcoming
+
+
+# <-------------------------------------Today's medication for Senior Citizen------------------------------------>
+
+@sc.route('/todays-medications')
+class TodaysMedications(Resource):
+    @jwt_required()
+    def get(self):
+        """Get today's medications for the logged-in senior citizen"""
+        user_id = current_user.id
+        user = User.query.get(user_id)
+        if not user or user.role != 'senior_citizen':
+            return {"error": "Only senior citizens can access this endpoint."}, 403
+
+        today = datetime.utcnow().date()
+        # Get all medicine assignments for this user that are active today
+        assignments = UserMedMap.query.filter(
+            UserMedMap.user_id == user_id,
+            UserMedMap.start_date <= today,
+            UserMedMap.end_date >= today
+        ).all()
+
+        result = []
+        for assign in assignments:
+            med = assign.medicine
+            # For each slot, check if it's set to True and add to the result
+            slots = [
+                ("Before Breakfast", assign.breakfast_before),
+                ("After Breakfast", assign.breakfast_after),
+                ("Before Lunch", assign.lunch_before),
+                ("After Lunch", assign.lunch_after),
+                ("Before Dinner", assign.dinner_before),
+                ("After Dinner", assign.dinner_after)
+            ]
+            for slot_name, is_active in slots:
+                if is_active:
+                    result.append({
+                        "medicine_name": med.title,
+                        "dosage": assign.dosage,
+                        "time": slot_name
+                    })
+        return {"date": today.isoformat(), "medications": result}, 200
 
 # <------------------------------------------------------------------------------------------------------------->

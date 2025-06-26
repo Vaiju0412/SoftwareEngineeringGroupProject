@@ -1,0 +1,27 @@
+pip install Flask-Migrate
+
+## add in app.py
+from flask_migrate import Migrate
+migrate = Migrate(app, db)
+
+
+//////// flask db init
+flask db migrate -m "Describe your changes"
+flask db upgrade
+python -m Backend.app
+
+
+{
+  "medicine_id": 1,
+  "dosage": 2,
+  "start_date": "2025-03-23",
+  "end_date": "2025-05-30",
+  "breakfast_before": false,
+  "breakfast_after": true,
+  "lunch_before": false,
+  "lunch_after": true,
+  "dinner_before": false,
+  "dinner_after": false,
+  "had_taken": true,
+  "random": true
+}
