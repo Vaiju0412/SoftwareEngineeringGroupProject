@@ -4,6 +4,7 @@ from flask_restx import Api
 from Backend.resources import sc
 from flask_migrate import Migrate
 from Backend.extensions import db, jwt  # Import from extensions.py
+from Backend.models import User
 import os
 
 def create_app():
@@ -14,7 +15,6 @@ def create_app():
     "http://10.244.53.76:8080" # Frontend on another device in the network
 ]}})
     # CORS(app)
-
     # Configure database
     instance_path = os.path.abspath(os.path.join(app.root_path, 'instance'))
     os.makedirs(instance_path, exist_ok=True)
@@ -25,6 +25,11 @@ def create_app():
     # Initialize extensions with app
     db.init_app(app)
     jwt.init_app(app)
+
+    @jwt.user_lookup_loader
+    def user_lookup_callback(_jwt_header, jwt_data):
+        identity = jwt_data["sub"]
+        return db.session.get(User, identity)
     
     # Initialize Flask-Migrate
     migrate = Migrate(app, db)

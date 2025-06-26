@@ -34,6 +34,7 @@ class Medicine(db.Model):
     image = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_approved = db.Column(db.Boolean, default=False)
+    status = db.Column(db.String(20), default='pending') #approved, pending, rejected
     
     # Fixed relationship
     user_med_maps = db.relationship('UserMedMap', backref=db.backref('medicine', passive_deletes=True), lazy=True, cascade='all, delete-orphan')
@@ -74,6 +75,7 @@ class DailyHealthEntry(db.Model):
     date = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     bp_systolic = db.Column(db.Float)
     bp_diastolic = db.Column(db.Float)
+
     sugar_level = db.Column(db.Float)
 
 class CaregiverSeniorMap(db.Model):
