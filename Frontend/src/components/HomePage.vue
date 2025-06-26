@@ -1,5 +1,6 @@
 <template>
   <div class="home-wrapper">
+    <!-- HEADER -->
     <div class="header">
       <div class="date-info">
         <p>Today</p>
@@ -7,7 +8,6 @@
         <h2>Greetings, {{ userName }}</h2>
         <h3>Today's medications</h3>
       </div>
-
       <div class="icons">
         <span>🔔</span>
         <span>📈</span>
@@ -15,9 +15,10 @@
       </div>
     </div>
 
+    <!-- MED CARDS -->
     <div class="medications">
       <div class="med-card mom">
-        <div class="label">Mom’s Next Medication <a href="#">View All</a></div>
+        <div class="label">Mom’s Next Medication <a href="#" @click.prevent="openModal('Mom')">View All</a></div>
         <div class="med-details">
           <span>🚫</span>
           <span>Medicine Name</span>
@@ -28,7 +29,7 @@
       </div>
 
       <div class="med-card dad">
-        <div class="label">Dad’s Next Medication <a href="#">View All</a></div>
+        <div class="label">Dad’s Next Medication <a href="#" @click.prevent="openModal('Dad')">View All</a></div>
         <div class="med-details">
           <span>🚫</span>
           <span>Medicine Name</span>
@@ -39,7 +40,7 @@
       </div>
 
       <div class="med-card uncle">
-        <div class="label">Uncle’s Next Medication <a href="#">View All</a></div>
+        <div class="label">Uncle’s Next Medication <a href="#" @click.prevent="openModal('Uncle')">View All</a></div>
         <div class="med-details">
           <span>🚫</span>
           <span>Medicine Name</span>
@@ -50,12 +51,13 @@
       </div>
     </div>
 
+    <!-- CALENDAR -->
     <div class="calendar-section">
       <div class="calendar-header">
-        <button class="legend mom">Mom</button>
-        <button class="legend dad">Dad</button>
-        <button class="legend uncle">Uncle</button>
-      </div>
+  <button class="legend mom">Mom</button>
+  <button class="legend dad">Dad</button>
+  <button class="legend uncle">Uncle</button>
+</div>
       <div class="calendar">
         <h2 class="month-label">June 2025</h2>
         <table>
@@ -66,19 +68,48 @@
           </thead>
           <tbody>
             <tr v-for="(week, index) in weeks" :key="index">
-              <td v-for="day in week" :key="day.date">
-                <span :class="'day ' + day.status">{{ day.label }}</span>
+              <td v-for="day in week" :key="day.label">
+                <span :class="'day ' + day.status + '-status'">{{ day.label }}</span>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- MODAL -->
+    <div v-if="showModal" class="modal-overlay">
+      <div class="modal-box">
+        <h2>{{ currentMember }}’s medications</h2>
+
+        <div class="section">
+          <h3>🌞 Daytime Meds</h3>
+          <div v-for="(med, index) in daytimeMeds" :key="index" class="med-card mom">
+            <span>🚫</span>
+            <span>{{ med.name }}</span>
+            <span>{{ med.dosage }}</span>
+            <span>⏰ {{ med.time }}</span>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>🌙 Nighttime Meds</h3>
+          <div v-for="(med, index) in nighttimeMeds" :key="index" class="med-card uncle">
+            <span>🚫</span>
+            <span>{{ med.name }}</span>
+            <span>{{ med.dosage }}</span>
+            <span>⏰ {{ med.time }}</span>
+          </div>
+        </div>
+
+        <button class="close-btn" @click="closeModal">Close</button>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-//import { ref } from 'vue'
+import { ref } from 'vue'
 
 const userName = 'User'
 const currentDate = new Date().toDateString()
@@ -96,6 +127,64 @@ const weeks = [
   ],
   ...Array(4).fill(Array(7).fill({ label: '•', status: 'default' })),
 ]
+
+const showModal = ref(false)
+const currentMember = ref('')
+const daytimeMeds = ref([])
+const nighttimeMeds = ref([])
+
+// Dummy API simulation (dummy data)
+function fakeApi(member) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const dummyData = {
+        Mom: {
+          daytime: [
+            { name: 'Med A', dosage: '1 pill', time: '9:00 AM' },
+            { name: 'Med B', dosage: '5 ml', time: '12:00 PM' }
+          ],
+          nighttime: [
+            { name: 'Med C', dosage: '1 tab', time: '9:00 PM' }
+          ]
+        },
+        Dad: {
+          daytime: [
+            { name: 'Med X', dosage: '1 tab', time: '8:00 AM' }
+          ],
+          nighttime: [
+            { name: 'Med Y', dosage: '1 pill', time: '10:00 PM' }
+          ]
+        },
+        Uncle: {
+          daytime: [],
+          nighttime: [
+            { name: 'Med Z', dosage: '1 cap', time: '11:00 PM' }
+          ]
+        }
+      }
+      resolve(dummyData[member])
+    }, 800) // simulates network delay
+  })
+}
+
+async function openModal(member) {
+  currentMember.value = member
+  showModal.value = true
+
+  try {
+    const data = await fakeApi(member)
+    daytimeMeds.value = data.daytime
+    nighttimeMeds.value = data.nighttime
+  } catch (err) {
+    console.error('Error fetching meds', err)
+    daytimeMeds.value = []
+    nighttimeMeds.value = []
+  }
+}
+
+function closeModal() {
+  showModal.value = false
+}
 </script>
 
 <style scoped>
@@ -221,18 +310,75 @@ th, td {
   line-height: 24px;
 }
 
-.green {
+.green-status {
   background-color: green;
   color: white;
 }
-.red {
+.red-status {
   background-color: red;
   color: white;
 }
-.default {
+.default-status {
   background-color: lightgray;
 }
-.mom {
+.mom-status {
   background-color: lightgreen;
 }
+
+/* MODAL STYLES */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.modal-box {
+  background-color: #b3d8ff;
+  padding: 2rem;
+  border-radius: 20px;
+  width: 400px;
+  max-width: 90%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.modal-box h2 {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.section h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.modal-box .med-card {
+  border-radius: 12px;
+  padding: 0.6rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.close-btn {
+  margin-top: 1rem;
+  background-color: #2962ff;
+  color: white;
+  padding: 0.4rem 1.2rem;
+  border: none;
+  border-radius: 10px;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  cursor: pointer;
+}
+
+
 </style>
