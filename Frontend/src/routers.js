@@ -1,31 +1,56 @@
 import { createRouter, createWebHistory } from 'vue-router'
+
+// --- Import your components ---
 import SignUp from './components/SignUp.vue';
 import HomePage from './components/HomePage.vue';
 import Login from './components/Login.vue';
+import ManageDependents from './components/ManageDependents.vue';
+import DependentProfile from './components/DependentProfile.vue';
+
+
 
 const routes = [
-    {
-        name: 'SignUp',
-        component: SignUp,
-        path: '/signup',
-        // This route should be accessible to non-logged-in users.
-        // No meta field needed.
-    },
-    {
-        name: 'HomePage',
-        component: HomePage,
-        path: '/',
-        // This route requires the user to be logged in.
-        // We add a meta field to indicate this.
-        meta: { requiresAuth: false }
-    },
+    // --- Public Routes (No auth required) ---
     {
         name: 'Login',
         component: Login,
         path: '/login',
-        // This route should be accessible to non-logged-in users.
-        // No meta field needed.
-    }
+    },
+    {
+        name: 'SignUp',
+        component: SignUp,
+        path: '/signup',
+    },
+    
+    // --- Route for the 'hasSS' redirect target ---
+    {
+        name: 'ManageDependents',
+        component: ManageDependents,
+        path: '/caregiver/manage/dependent',
+        // This route requires login, but not the 'hasSS' key
+        meta: { 
+            requiresAuth: false,
+            requiresHasSS: false
+         }
+    },
+
+    // --- Protected Routes ---
+    {
+        name: 'HomePage',
+        component: HomePage,
+        path: '/',
+        // This route ONLY requires the user to be logged in.
+        meta: { 
+            requiresAuth: false,
+            requiresHasSS: true
+        }
+    },
+    {
+        name: 'DependentProfile', // <-- Add the new route
+        path: '/profile/:userId', // <-- Dynamic segment for the user ID
+        component: DependentProfile,
+        meta: { requiresAuth: false, requiresHasSS: false } // Protect this route
+    },
 ];
 
 const router = createRouter({
@@ -35,23 +60,34 @@ const router = createRouter({
 
 // Global Navigation Guard
 router.beforeEach((to, from, next) => {
-    // 1. Check if the route requires authentication.
+    // Check if the route requires authentication
     const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
+    // Check if the route requires the 'hasSS' key
+    const requiresHasSS = to.matched.some(record => record.meta.requiresHasSS);
 
-    // 2. Get the logged-in status from sessionStorage.
-    //    Note: sessionStorage stores strings, so we check against 'true'.
+    // Get status from sessionStorage
     const isLoggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
+    const hasSS = sessionStorage.getItem('hasSS') === 'true';
 
-    // 3. If the route requires auth and the user is NOT logged in,
-    //    redirect to the login page.
+    // --- CHECK 1: LOGIN STATUS ---
+    // If route requires auth and user is not logged in, redirect to login page.
+    // This is the highest priority check.
     if (requiresAuth && !isLoggedIn) {
         next({ name: 'Login' });
-    } else {
-        // 4. Otherwise, allow the navigation to proceed.
-        //    This covers routes that don't require auth, or routes
-        //    that do require auth and the user is logged in.
-        next();
+        return; // Stop further execution
     }
+
+    // --- CHECK 2: 'hasSS' STATUS ---
+    // If route requires the 'hasSS' key, and the user is logged in, but doesn't have the key,
+    // redirect them to the 'add dependent' page.
+    if (requiresHasSS && !hasSS) {
+        // We use path here as requested. Using a named route is also a good practice.
+        next({ path: '/caregiver/manage/dependent' });
+        return; // Stop further execution
+    }
+
+    // If all checks pass, allow navigation.
+    next();
 });
 
 export default router;
