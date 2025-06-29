@@ -10,25 +10,26 @@
       <div v-else-if="dependents.length > 0" class="members-grid">
         <div 
           v-for="dep in dependents" 
-          :key="dep.user_id" 
+          :key="dep.id" 
           class="member-card"
           :style="{ backgroundColor: getCardColor(dep.gender) }"
           @click="viewProfile(dep)"
         >
           <div class="card-header">
-            <span class="member-name">{{ dep.name }}</span>
+            <!-- Displaying firstName as the main name now -->
+            <span class="member-name">{{ dep.firstName }}</span>
             <span class="edit-icon">✎</span>
           </div>
           <div class="member-icon">
-            <!-- Simple SVG icons for male/female -->
             <svg v-if="dep.gender === 'female'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 288 512" fill="currentColor"><path d="M144 0a80 80 0 1 1 0 160A80 80 0 1 1 144 0zM96 192c-35.3 0-64 28.7-64 64V448c0 17.7 14.3 32 32 32s32-14.3 32-32V384h64v64c0 17.7 14.3 32 32 32s32-14.3 32-32V256c0-35.3-28.7-64-64-64H96z"/></svg>
             <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" fill="currentColor"><path d="M160 0a80 80 0 1 1 0 160A80 80 0 1 1 160 0zM56 192c-33.1 0-60.3 25.5-63.8 57.9l-2.4 23.3C-14.5 306.9 1.7 344.4 29.3 365.2l2.3 1.7c29.1 21.6 68.3 21.6 97.4 0l2.3-1.7c27.6-20.8 43.8-58.3 29.1-89.1l-2.4-23.3C176.3 217.5 149.1 192 116 192H56zM232 256c-13.3 0-24 10.7-24 24V448c0 17.7 14.3 32 32 32s32-14.3 32-32V280c0-13.3-10.7-24-24-24z"/></svg>
           </div>
-          <button class="delete-btn" @click.stop="deleteDependent(dep.user_id)">Delete Profile</button>
+          <!-- Use the consistent `dep.id` now -->
+          <button class="delete-btn" @click.stop="handleDelete(dep.id)">Delete Profile</button>
         </div>
       </div>
       
-      <!-- No Dependents Message (Implicitly handled by showing Add button below) -->
+      <!-- No Dependents Message -->
       <div v-if="!isLoading && dependents.length === 0" class="empty-state">
           <p>No members found. Please add one.</p>
       </div>
@@ -43,9 +44,9 @@
     <div v-if="showAddModal" class="modal-overlay" @click.self="closeAddModal">
       <div class="modal-content">
         <h2>Add a New Dependent</h2>
-        <p>Search for a user and select them to add as a dependent.</p>
+        <p>Search for a user by name or username and select them to add.</p>
         <div class="search-container">
-          <input type="text" v-model="searchQuery" placeholder="Enter username to search..." @input="searchUsers" />
+          <input type="text" v-model="searchQuery" placeholder="Enter username or name..." @input="handleSearch" />
           <div v-if="isSearching" class="search-loading">Searching...</div>
         </div>
         <ul v-if="searchResults.length > 0" class="search-results">
@@ -55,7 +56,7 @@
             @click="selectUser(user)"
             :class="{ selected: selectedNewDependent && selectedNewDependent.id === user.id }"
           >
-            {{ user.name }} ({{ user.username }})
+            {{ user.firstName }} {{ user.lastName }} ({{ user.username }})
           </li>
         </ul>
         <div v-if="searchAttempted && searchResults.length === 0 && !isSearching" class="no-results">
@@ -63,38 +64,30 @@
         </div>
         <div class="modal-actions">
           <button class="modal-btn-cancel" @click="closeAddModal">Cancel</button>
-          <button class="modal-btn-confirm" @click="addSelectedDependent" :disabled="!selectedNewDependent">Add Dependent</button>
+          <button class="modal-btn-confirm" @click="handleAddDependent" :disabled="!selectedNewDependent">Add Dependent</button>
         </div>
       </div>
     </div>
     
-    <!-- Edit Dependent Modal (Placeholder) -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="closeEditModal">
-      <div class="modal-content">
-        <h2>Edit {{ selectedDependent?.name }}'s Profile</h2>
-        <p>This is where the form to edit the dependent's details will go.</p>
-        <p>User ID: {{ selectedDependent?.user_id }}</p>
-         <div class="modal-actions">
-          <button class="modal-btn-cancel" @click="closeEditModal">Close</button>
-        </div>
-      </div>
-    </div>
-
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-
-const router = useRouter();
+// Import from our centralized mock API service
+import { 
+  getDependentsList,
+  deleteDependent as apiDeleteDependent,
+  searchAllUsers,
+  addDependent as apiAddDependent
+} from '../services/mockApi.js';
 
 // --- Reactive State ---
+const router = useRouter();
 const dependents = ref([]);
 const isLoading = ref(true);
 const showAddModal = ref(false);
-const showEditModal = ref(false);
-const selectedDependent = ref(null);
 
 // State for "Add Dependent" modal
 const searchQuery = ref('');
@@ -103,58 +96,17 @@ const selectedNewDependent = ref(null);
 const isSearching = ref(false);
 const searchAttempted = ref(false);
 
-// --- Mock Data ---
-const allUsers = [
-  { id: 'user_101', name: 'John Doe', username: 'johndoe' },
-  { id: 'user_102', name: 'Jane Smith', username: 'janesmith' },
-  { id: 'user_103', name: 'Peter Jones', username: 'peterj' },
-  { id: 'user_104', name: 'Mary Williams', username: 'maryw' },
-];
-
-const initialDependents = [
-  { user_id: 'dep_001', name: 'Mom', gender: 'female' },
-  { user_id: 'dep_002', name: 'Dad', gender: 'male' },
-  { user_id: 'dep_003', name: 'Uncle', gender: 'male' },
-];
-
-// --- Mock API Functions ---
-
-// Mimics GET /api/get/dependents
-function mockFetchDependents() {
-  console.log('API CALL: /get/dependents');
-  return new Promise(resolve => {
-    setTimeout(() => {
-      // To test the empty state, change this to resolve([])
-      resolve(initialDependents); 
-    }, 1000); // 1-second delay
-  });
-}
-
-// Mimics GET /api/search/users?q=...
-function mockSearchUsers(query) {
-  console.log(`API CALL: /search/users?q=${query}`);
-  isSearching.value = true;
-  searchAttempted.value = true;
-  return new Promise(resolve => {
-    setTimeout(() => {
-      if (!query) {
-        resolve([]);
-        return;
-      }
-      const results = allUsers.filter(user => 
-        user.name.toLowerCase().includes(query.toLowerCase()) ||
-        user.username.toLowerCase().includes(query.toLowerCase())
-      );
-      resolve(results);
-    }, 500); // 0.5-second delay
-  });
-}
-
 // --- Component Logic ---
 
-onMounted(async () => {
-  dependents.value = await mockFetchDependents();
+// Central function to fetch data and update the component state
+async function fetchDependents() {
+  isLoading.value = true;
+  dependents.value = await getDependentsList();
   isLoading.value = false;
+}
+
+onMounted(() => {
+  fetchDependents();
 });
 
 function getCardColor(gender) {
@@ -163,20 +115,14 @@ function getCardColor(gender) {
 
 // --- Card Actions ---
 function viewProfile(dependent) {
-  console.log('Navigating to profile for user_id:', dependent.user_id);
-  router.push({ name: 'DependentProfile', params: { userId: dependent.user_id } });
+  router.push({ name: 'DependentProfile', params: { userId: dependent.id } });
 }
 
-function closeEditModal() {
-  showEditModal.value = false;
-  selectedDependent.value = null;
-}
-
-function deleteDependent(userId) {
-  console.log('Deleting dependent:', userId);
-  // Add a confirmation dialog for a real app
+async function handleDelete(userId) {
   if (confirm('Are you sure you want to delete this profile?')) {
-    dependents.value = dependents.value.filter(d => d.user_id !== userId);
+    await apiDeleteDependent(userId);
+    // Re-fetch the list from the "API" to update the UI
+    await fetchDependents();
   }
 }
 
@@ -195,29 +141,34 @@ function closeAddModal() {
   searchAttempted.value = false;
 }
 
-async function searchUsers() {
-  searchResults.value = await mockSearchUsers(searchQuery.value);
-  isSearching.value = false;
+let searchTimeout;
+function handleSearch() {
+  clearTimeout(searchTimeout);
+  isSearching.value = true;
+  searchAttempted.value = true;
+  // Debounce the search to avoid API calls on every keystroke
+  searchTimeout = setTimeout(async () => {
+    searchResults.value = await searchAllUsers(searchQuery.value);
+    isSearching.value = false;
+  }, 300);
 }
 
 function selectUser(user) {
-  console.log('Selected user:', user);
   selectedNewDependent.value = user;
 }
 
-function addSelectedDependent() {
+async function handleAddDependent() {
   if (!selectedNewDependent.value) return;
 
-  console.log('Adding new dependent:', selectedNewDependent.value);
-  
-  // Create a new dependent object to add to our list
-  const newDependent = {
-    user_id: `dep_${Date.now()}`, // Create a unique ID
-    name: selectedNewDependent.value.name,
-    gender: 'male' // Default to male, can be changed in edit modal
-  };
-  dependents.value.push(newDependent);
-  closeAddModal();
+  const response = await apiAddDependent(selectedNewDependent.value);
+
+  if (response.success) {
+    // Close the modal and refresh the list of dependents
+    closeAddModal();
+    await fetchDependents();
+  } else {
+    alert(response.message || 'Failed to add dependent.');
+  }
 }
 </script>
 

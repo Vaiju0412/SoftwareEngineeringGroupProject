@@ -7,12 +7,26 @@
 // --- SIMULATED DATABASE TABLES ---
 
 const db = {
-  // Corresponds to the User model
+  // Corresponds to the User model, representing the CURRENT user's dependents.
+  // This is the "CaregiverSeniorMap" for the logged-in user.
   users: [
-    { id: 'dep_001', firstName: 'Eleanor', lastName: 'Vance', birthDate: '1958-05-15', relation: 'Mom' },
-    { id: 'dep_002', firstName: 'Hugh', lastName: 'Crain', birthDate: '1955-11-20', relation: 'Dad' },
-    { id: 'dep_003', firstName: 'Theo', lastName: 'Vance', birthDate: '1962-09-01', relation: 'Uncle' },
+    { id: 'dep_001', firstName: 'Eleanor', lastName: 'Vance', birthDate: '1958-05-15', relation: 'Mom', gender: 'female' },
+    { id: 'dep_002', firstName: 'Hugh', lastName: 'Crain', birthDate: '1955-11-20', relation: 'Dad', gender: 'male' },
+    { id: 'dep_003', firstName: 'Theo', lastName: 'Vance', birthDate: '1962-09-01', relation: 'Uncle', gender: 'male' },
   ],
+  
+  // A master list of ALL users in the system, for searching purposes.
+  allSystemUsers: [
+    { id: 'user_101', firstName: 'John', lastName: 'Doe', username: 'johndoe' },
+    { id: 'user_102', firstName: 'Jane', lastName: 'Smith', username: 'janesmith' },
+    { id: 'user_103', firstName: 'Peter', lastName: 'Jones', username: 'peterj' },
+    { id: 'user_104', firstName: 'Mary', lastName: 'Williams', username: 'maryw' },
+    // Include existing dependents here so they aren't searchable again initially
+    { id: 'dep_001', firstName: 'Eleanor', lastName: 'Vance', username: 'eleanorv' },
+    { id: 'dep_002', firstName: 'Hugh', lastName: 'Crain', username: 'hughc' },
+    { id: 'dep_003', firstName: 'Theo', lastName: 'Vance', username: 'theov' },
+  ],
+  
   // Corresponds to the Medicine model (master list of all possible medicines)
   medicines: [
     { id: 1, title: 'Lisinopril', description: 'For high blood pressure.' },
@@ -21,6 +35,7 @@ const db = {
     { id: 4, title: 'Amlodipine', description: 'For high blood pressure and angina.' },
     { id: 5, title: 'Albuterol', description: 'For asthma and COPD.' },
   ],
+  
   // Corresponds to the UserMedMap model
   userMedMaps: [
     // Meds for "Mom" (dep_001)
@@ -48,6 +63,62 @@ const calculateAge = (birthDate) => {
 };
 
 // --- MOCK API ENDPOINT FUNCTIONS ---
+
+// GET /api/dependents
+export async function getDependentsList() {
+  await simulateDelay(300);
+  console.log(`[Mock API] GET /api/dependents`);
+  // Return a copy to prevent direct mutation from components
+  return [...db.users];
+}
+
+// DELETE /api/dependents/:userId
+export async function deleteDependent(userId) {
+  await simulateDelay(300);
+  console.log(`[Mock API] DELETE /api/dependents/${userId}`);
+  const index = db.users.findIndex(d => d.id === userId);
+  if (index > -1) {
+    db.users.splice(index, 1);
+    return { success: true };
+  }
+  return { success: false, message: 'Dependent not found.' };
+}
+
+// GET /api/users?search=... (For adding new dependents)
+export async function searchAllUsers(query) {
+  await simulateDelay(400);
+  console.log(`[Mock API] GET /api/users?search=${query}`);
+  if (!query) return [];
+  
+  // Find users from the master list who are NOT already in the dependents list
+  const currentDependentIds = db.users.map(d => d.id);
+  
+  return db.allSystemUsers.filter(user => {
+    const isAlreadyDependent = currentDependentIds.includes(user.id);
+    const matchesQuery = user.username.toLowerCase().includes(query.toLowerCase()) ||
+                         `${user.firstName} ${user.lastName}`.toLowerCase().includes(query.toLowerCase());
+    return !isAlreadyDependent && matchesQuery;
+  });
+}
+
+// POST /api/dependents
+export async function addDependent(userToAdd) {
+  await simulateDelay();
+  console.log(`[Mock API] POST /api/dependents`, userToAdd);
+  const isAlreadyDependent = db.users.some(d => d.id === userToAdd.id);
+  if (isAlreadyDependent) {
+    return { success: false, message: 'User is already a dependent.' };
+  }
+  
+  // In a real app, you'd create a CaregiverSeniorMap entry. Here, we just add to the list.
+  const newDependent = {
+    ...userToAdd,
+    relation: 'N/A', // Default relation
+    gender: 'male', // Default gender
+  };
+  db.users.push(newDependent);
+  return { success: true, dependent: newDependent };
+}
 
 // GET /api/user/:userId
 export async function getDependentDetails(userId) {

@@ -6,11 +6,10 @@ import HomePage from './components/HomePage.vue';
 import Login from './components/Login.vue';
 import ManageDependents from './components/ManageDependents.vue';
 import DependentProfile from './components/DependentProfile.vue';
-
-
+import AccessDenied from './components/AccessDenied.vue';
 
 const routes = [
-    // --- Public Routes (No auth required) ---
+    // --- Public Routes ---
     {
         name: 'Login',
         component: Login,
@@ -21,35 +20,40 @@ const routes = [
         component: SignUp,
         path: '/signup',
     },
+    {
+        name: 'AccessDenied',
+        component: AccessDenied,
+        path: '/access-denied',
+    },
     
-    // --- Route for the 'hasSS' redirect target ---
+    // --- Protected Routes ---
     {
         name: 'ManageDependents',
         component: ManageDependents,
         path: '/caregiver/manage/dependent',
-        // This route requires login, but not the 'hasSS' key
         meta: { 
             requiresAuth: false,
-            requiresHasSS: false
-         }
+            allowedRoles: ['caregiver', 'all'] // ONLY caregivers can access this
+        }
     },
-
-    // --- Protected Routes ---
     {
         name: 'HomePage',
         component: HomePage,
         path: '/',
-        // This route ONLY requires the user to be logged in.
         meta: { 
             requiresAuth: false,
-            requiresHasSS: true
+            requiresHasDep: false,
+            // NO `allowedRoles` key means ANY logged-in user can access it.
         }
     },
     {
-        name: 'DependentProfile', // <-- Add the new route
-        path: '/profile/:userId', // <-- Dynamic segment for the user ID
+        name: 'DependentProfile',
+        path: '/profile/:userId',
         component: DependentProfile,
-        meta: { requiresAuth: false, requiresHasSS: false } // Protect this route
+        meta: { 
+            requiresAuth: false, 
+            allowedRoles: ['caregiver', 'senior_citizen', 'all'] // Both can view profiles
+        }
     },
 ];
 
@@ -60,33 +64,46 @@ const router = createRouter({
 
 // Global Navigation Guard
 router.beforeEach((to, from, next) => {
-    // Check if the route requires authentication
+    // Get meta properties from the route
     const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
-    // Check if the route requires the 'hasSS' key
-    const requiresHasSS = to.matched.some(record => record.meta.requiresHasSS);
+    const requiresHasDep = to.matched.some(record => record.meta.requiresHasDep);
+    const allowedRoles = to.meta.allowedRoles;
 
     // Get status from sessionStorage
     const isLoggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
-    const hasSS = sessionStorage.getItem('hasSS') === 'true';
+    const hasDep = sessionStorage.getItem('hasDep') === 'true';
+    const userRole = sessionStorage.getItem('role'); // This will be null if not set
 
-    // --- CHECK 1: LOGIN STATUS ---
-    // If route requires auth and user is not logged in, redirect to login page.
-    // This is the highest priority check.
+    // CHECK 1: AUTHENTICATION
     if (requiresAuth && !isLoggedIn) {
-        next({ name: 'Login' });
-        return; // Stop further execution
+        return next({ name: 'Login' });
     }
 
-    // --- CHECK 2: 'hasSS' STATUS ---
-    // If route requires the 'hasSS' key, and the user is logged in, but doesn't have the key,
-    // redirect them to the 'add dependent' page.
-    if (requiresHasSS && !hasSS) {
-        // We use path here as requested. Using a named route is also a good practice.
-        next({ path: '/caregiver/manage/dependent' });
-        return; // Stop further execution
+    // ========================================================================
+    // CHECK 2: AUTHORIZATION (ROLE CHECK) - THIS IS THE FIXED LOGIC
+    // ========================================================================
+    // This check only runs if the route has a defined `allowedRoles` array with at least one role.
+    // If `meta.allowedRoles` is missing or is an empty array, this entire block is skipped.
+    if (
+        allowedRoles &&
+        Array.isArray(allowedRoles) &&
+        allowedRoles.length > 0 &&
+        !allowedRoles.includes('all') // <-- The new bypass condition
+    ) {
+        // This is the strict check for specific roles.
+        // It runs only if the route has roles like ['caregiver'] or ['admin'].
+        if (!userRole || !allowedRoles.includes(userRole)) {
+            return next({ name: 'AccessDenied' });
+        }
     }
 
-    // If all checks pass, allow navigation.
+    // CHECK 3: DEPENDENT CHECK ('hasDep')
+    // Runs after auth and role checks have passed.
+    if (requiresHasDep && !hasDep && to.name !== 'ManageDependents') {
+        return next({ name: 'ManageDependents' });
+    }
+
+    // If all checks passed, allow navigation
     next();
 });
 
