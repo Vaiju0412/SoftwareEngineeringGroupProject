@@ -1,2 +1,2 @@
 # SilverCare
-This is a group project for IIT Madras CS3001 Software Engineering subject.
+This web application helps in managing complex medication schedules which is a significant challenge for many elderly individuals and their caregivers, leading to missed doses, incorrect dosages, and a lack of visibility into the elderly person's health status.
